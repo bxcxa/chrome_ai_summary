@@ -1,0 +1,29 @@
+{
+    "manifest_version": 3,
+    "name": "AI Summary Assistant",
+    "version": "1.0",
+    "description": "使用AI快速总结选中的文本",
+    "permissions": [
+      "contextMenus",
+      "storage",
+      "activeTab",
+      "scripting"   
+    ],
+    "host_permissions": [
+      "http://localhost:11434/*",
+      "https://api.deepseek.com/*",
+      "<all_urls>"   
+    ],
+    "background": {
+      "service_worker": "background.js",
+      "type": "module"
+    },
+    "content_scripts": [{
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }],
+    "action": {
+      "default_popup": "popup.html"
+    }
+  }
