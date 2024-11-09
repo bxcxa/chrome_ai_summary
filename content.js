@@ -2,6 +2,33 @@ console.log('Content script loaded!');
 
 let currentPopup = null;
 
+// 首先添加 marked 库的加载检查和初始化
+let markedInitialized = false;
+
+async function initializeMarked() {
+  if (markedInitialized) return;
+  
+  try {
+    // 检查 marked 是否已经存在
+    if (typeof marked === 'undefined') {
+      // 如果不存在，动态加载 marked
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('marked.min.js');
+      script.onload = () => {
+        markedInitialized = true;
+      };
+      document.head.appendChild(script);
+      
+      // 等待脚本加载完成
+      await new Promise(resolve => script.onload = resolve);
+    } else {
+      markedInitialized = true;
+    }
+  } catch (error) {
+    console.error('Failed to initialize marked:', error);
+  }
+}
+
 // 创建或获取总结弹窗
 function getOrCreateSummaryPopup() {
   if (currentPopup) {
@@ -14,16 +41,7 @@ function getOrCreateSummaryPopup() {
   popup.className = 'ai-summary-popup';
   popup.innerHTML = `
     <div class="summary-header">
-      <h3>AI总结</h3>
-      <div class="summary-controls">
-        <select class="word-limit">
-          <option value="">不限字数</option>
-          <option value="100">100字以内</option>
-          <option value="200">200字以内</option>
-          <option value="500">500字以内</option>
-        </select>
-        <button class="close-btn">×</button>
-      </div>
+      <button class="close-btn">×</button>
     </div>
     <div class="summary-content markdown-body"></div>
     <div class="summary-status" style="display: none;"></div>
@@ -32,19 +50,9 @@ function getOrCreateSummaryPopup() {
   document.body.appendChild(popup);
   currentPopup = popup;
 
-  // 添加关闭按钮功能
   popup.querySelector('.close-btn').addEventListener('click', () => {
     popup.remove();
     currentPopup = null;
-  });
-
-  // 添加字数限制变更监听
-  popup.querySelector('.word-limit').addEventListener('change', (e) => {
-    const limit = e.target.value;
-    chrome.runtime.sendMessage({
-      action: "updateWordLimit",
-      limit: limit
-    });
   });
 
   return popup;
@@ -53,19 +61,28 @@ function getOrCreateSummaryPopup() {
 // 处理 Markdown 内容
 let markdownContent = '';
 
-function appendAndRenderContent(content) {
+// 修改 appendAndRenderContent 函数
+async function appendAndRenderContent(content) {
   if (!currentPopup) return;
+  
+  // 确保 marked 已初始化
+  await initializeMarked();
   
   const contentDiv = currentPopup.querySelector('.summary-content');
   markdownContent += content;
   
-  // 使用 marked 渲染 Markdown
   try {
-    contentDiv.innerHTML = marked.parse(markdownContent, {
-      breaks: true,
-      gfm: true
-    });
+    if (typeof marked !== 'undefined') {
+      contentDiv.innerHTML = marked.parse(markdownContent, {
+        breaks: true,
+        gfm: true
+      });
+    } else {
+      // 降级处理：如果 marked 不可用，直接显示文本
+      contentDiv.textContent = markdownContent;
+    }
   } catch (e) {
+    console.error('Markdown parsing failed:', e);
     contentDiv.textContent = markdownContent;
   }
 
@@ -90,15 +107,17 @@ function hideStatus() {
   }
 }
 
-// 监听来自background的消息
+// 修改消息监听器
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Content script received message:', request);
 
   switch (request.action) {
     case "prepareSummary":
-      getOrCreateSummaryPopup();
-      showStatus('正在生成总结...');
-      markdownContent = ''; // 重置 Markdown 内容
+      initializeMarked().then(() => {
+        getOrCreateSummaryPopup();
+        showStatus('正在生成总结...');
+        markdownContent = '';
+      });
       break;
 
     case "appendSummary":
