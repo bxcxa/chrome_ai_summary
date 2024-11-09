@@ -1,42 +1,140 @@
-// 确保右键菜单被创建
+// 在文件开头添加右键菜单注册代码
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Extension installed');
   chrome.contextMenus.create({
     id: "aiSummary",
     title: "AI总结所选文本",
     contexts: ["selection"]
-  }, () => {
-    if (chrome.runtime.lastError) {
-      console.error('创建菜单失败:', chrome.runtime.lastError);
-    } else {
-      console.log('右键菜单创建成功');
-    }
   });
 });
 
-// 添加字数限制状态
-let currentWordLimit = '';
-
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "updateWordLimit") {
-    currentWordLimit = request.limit;
-    sendResponse({success: true});
+async function callAPI(text, settings) {
+  console.log('Starting API call with settings:', settings);
+  
+  if (settings.apiService === 'ollama') {
+    return callOllamaAPI(text, settings);
+  } else if (settings.apiService === 'deepseek') {
+    return callDeepseekAPI(text, settings);
+  } else {
+    throw new Error('未支持的 API 服务');
   }
-});
+}
 
-// 处理右键菜单点击
+async function callOllamaAPI(text, settings, tab) {
+  console.log('Calling Ollama API...', settings.ollama);
+  
+  try {
+    const response = await fetch(`${settings.ollama.url}/api/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: settings.ollama.model,
+        prompt: text,
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API 错误: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.trim() === '') continue;
+        try {
+          const json = JSON.parse(line);
+          if (json.response) {
+            // 发送每个响应片段到内容脚本
+            chrome.tabs.sendMessage(tab.id, {
+              action: "appendSummary",
+              content: json.response
+            });
+          }
+        } catch (e) {
+          console.error('解析响应出错:', e);
+        }
+      }
+    }
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function callDeepseekAPI(text, settings, tab) {
+  console.log('Calling Deepseek API...');
+  
+  try {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.deepseek.apiKey}`
+      },
+      body: JSON.stringify({
+        model: settings.deepseek.model,
+        messages: [{
+          role: 'user',
+          content: text
+        }],
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Deepseek API 错误: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.trim() === '' || line.includes('data: [DONE]')) continue;
+        try {
+          const jsonStr = line.replace(/^data: /, '');
+          const json = JSON.parse(jsonStr);
+          if (json.choices && json.choices[0].delta && json.choices[0].delta.content) {
+            // 发送每个响应片段到内容脚本
+            chrome.tabs.sendMessage(tab.id, {
+              action: "appendSummary",
+              content: json.choices[0].delta.content
+            });
+          }
+        } catch (e) {
+          console.error('解析响应出错:', e);
+        }
+      }
+    }
+  } catch (error) {
+    throw error;
+  }
+}
+
+// 修改右键菜单点击处理器
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "aiSummary") {
+    console.log('Menu clicked, processing text...');
+    
     try {
       const { settings } = await chrome.storage.sync.get('settings');
-      
-      // 准备提示词
-      let prompt = settings.customPrompt || getDefaultPrompt();
-      prompt = prompt.replace('{{text}}', info.selectionText);
-      
-      // 如果设置了字数限制，添加到提示词中
-      if (settings.wordLimit) {
-        prompt += `\n\n请控制在 ${settings.wordLimit} 字以内`;
+      if (!settings) {
+        throw new Error('请先配置 AI 服务设置');
       }
 
       // 发送准备消息
@@ -44,55 +142,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         action: "prepareSummary"
       });
 
-      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${settings?.deepseek?.apiKey || ''}`
-        },
-        body: JSON.stringify({
-          model: settings?.deepseek?.model || "deepseek-chat",
-          messages: [{
-            role: "user",
-            content: prompt
-          }],
-          stream: true
-        })
-      });
+      // 准备提示词
+      let prompt = settings.customPrompt || getDefaultPrompt();
+      prompt = prompt.replace('{{text}}', info.selectionText);
+      
+      if (settings.wordLimit) {
+        prompt += `\n\n请控制在 ${settings.wordLimit} 字以内`;
+      }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.trim() === '') continue;
-          if (line.includes('data: [DONE]')) continue;
-          
-          try {
-            const jsonStr = line.replace(/^data: /, '');
-            const json = JSON.parse(jsonStr);
-            
-            // 检查响应格式
-            if (json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content) {
-              const content = json.choices[0].delta.content;
-              // 发送内容到内容脚本
-              chrome.tabs.sendMessage(tab.id, {
-                action: "appendSummary",
-                content: content
-              });
-            }
-          } catch (e) {
-            console.error('解析响应出错:', e, line);
-          }
-        }
+      // 根据选择的服务调用不同的 API
+      if (settings.apiService === 'ollama') {
+        await callOllamaAPI(prompt, settings, tab);
+      } else if (settings.apiService === 'deepseek') {
+        await callDeepseekAPI(prompt, settings, tab);
       }
 
       // 发送完成信号
@@ -110,17 +172,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// 监听来自popup的消息
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background received message:', request);
-  sendResponse({received: true});
-});
-
 function getDefaultPrompt() {
-  return `请用markdown格式总结以下文本，要求：
-1. 分点概括主要内容
-2. 语言简洁清晰
-3. 保持原文的关键信息
-
-原文：{{text}}`;
-}
+  return `请用markdown格式总结以下文本：\n\n{{text}}`;
+} 

@@ -1,39 +1,40 @@
 console.log('Content script loaded!');
 
 let currentPopup = null;
+let markdownContent = '';
+let markedLoaded = false;
 
-// 首先添加 marked 库的加载检查和初始化
-let markedInitialized = false;
-
-async function initializeMarked() {
-  if (markedInitialized) return;
+// 加载 marked 库
+async function loadMarked() {
+  if (markedLoaded) return;
   
-  try {
-    // 检查 marked 是否已经存在
-    if (typeof marked === 'undefined') {
-      // 如果不存在，动态加载 marked
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL('marked.min.js');
-      script.onload = () => {
-        markedInitialized = true;
-      };
-      document.head.appendChild(script);
-      
-      // 等待脚本加载完成
-      await new Promise(resolve => script.onload = resolve);
-    } else {
-      markedInitialized = true;
-    }
-  } catch (error) {
-    console.error('Failed to initialize marked:', error);
-  }
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('marked.min.js');
+    script.onload = () => {
+      markedLoaded = true;
+      resolve();
+    };
+    script.onerror = () => {
+      reject(new Error('Failed to load marked.js'));
+    };
+    document.head.appendChild(script);
+  });
 }
 
-// 创建或获取总结弹窗
-function getOrCreateSummaryPopup() {
+// 修改弹窗创建函数
+async function getOrCreateSummaryPopup() {
+  // 确保 marked 已加载
+  try {
+    await loadMarked();
+  } catch (error) {
+    console.error('Failed to load marked:', error);
+  }
+
   if (currentPopup) {
     const contentDiv = currentPopup.querySelector('.summary-content');
     contentDiv.textContent = '';
+    markdownContent = '';
     return currentPopup;
   }
 
@@ -53,57 +54,30 @@ function getOrCreateSummaryPopup() {
   popup.querySelector('.close-btn').addEventListener('click', () => {
     popup.remove();
     currentPopup = null;
+    markdownContent = '';
   });
 
   return popup;
 }
 
-// 处理 Markdown 内容
-let markdownContent = '';
-
-// 修改 appendAndRenderContent 函数
-async function appendAndRenderContent(content) {
-  if (!currentPopup) return;
-  
-  // 确保 marked 已初始化
-  await initializeMarked();
-  
-  const contentDiv = currentPopup.querySelector('.summary-content');
-  markdownContent += content;
+// 修改内容渲染函数
+async function renderMarkdown(content) {
+  if (!markedLoaded) {
+    try {
+      await loadMarked();
+    } catch (error) {
+      return content; // 如果加载失败，返回原始文本
+    }
+  }
   
   try {
-    if (typeof marked !== 'undefined') {
-      contentDiv.innerHTML = marked.parse(markdownContent, {
-        breaks: true,
-        gfm: true
-      });
-    } else {
-      // 降级处理：如果 marked 不可用，直接显示文本
-      contentDiv.textContent = markdownContent;
-    }
-  } catch (e) {
-    console.error('Markdown parsing failed:', e);
-    contentDiv.textContent = markdownContent;
-  }
-
-  // 滚动到底部
-  contentDiv.scrollTop = contentDiv.scrollHeight;
-}
-
-// 显示加载状态
-function showStatus(message) {
-  if (currentPopup) {
-    const statusDiv = currentPopup.querySelector('.summary-status');
-    statusDiv.textContent = message;
-    statusDiv.style.display = 'block';
-  }
-}
-
-// 隐藏加载状态
-function hideStatus() {
-  if (currentPopup) {
-    const statusDiv = currentPopup.querySelector('.summary-status');
-    statusDiv.style.display = 'none';
+    return marked.parse(content, {
+      breaks: true,
+      gfm: true
+    });
+  } catch (error) {
+    console.error('Markdown parsing failed:', error);
+    return content;
   }
 }
 
@@ -113,26 +87,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   switch (request.action) {
     case "prepareSummary":
-      initializeMarked().then(() => {
-        getOrCreateSummaryPopup();
-        showStatus('正在生成总结...');
+      getOrCreateSummaryPopup().then(() => {
         markdownContent = '';
+        showStatus('正在生成总结...');
       });
       break;
 
     case "appendSummary":
-      appendAndRenderContent(request.content);
+      if (currentPopup && request.content) {
+        markdownContent += request.content;
+        renderMarkdown(markdownContent).then(html => {
+          const contentDiv = currentPopup.querySelector('.summary-content');
+          if (contentDiv) {
+            contentDiv.innerHTML = html;
+            contentDiv.scrollTop = contentDiv.scrollHeight;
+          }
+        });
+      }
       break;
 
     case "completeSummary":
-      hideStatus();
+      if (currentPopup) {
+        hideStatus();
+      }
       break;
 
     case "showError":
-      getOrCreateSummaryPopup();
-      const contentDiv = currentPopup.querySelector('.summary-content');
-      contentDiv.innerHTML = `<div class="error-message">错误：${request.error}</div>`;
-      hideStatus();
+      getOrCreateSummaryPopup().then(() => {
+        const contentDiv = currentPopup.querySelector('.summary-content');
+        if (contentDiv) {
+          contentDiv.innerHTML = `<div class="error-message">错误：${request.error}</div>`;
+        }
+        hideStatus();
+      });
       break;
   }
 
