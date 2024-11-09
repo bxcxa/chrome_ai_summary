@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <style>
     body {
-      width: 300px;
+      width: 350px;
       padding: 15px;
     }
     .form-group {
@@ -13,11 +13,19 @@
     label {
       display: block;
       margin-bottom: 5px;
+      font-weight: bold;
     }
-    select, input {
+    select, input, textarea {
       width: 100%;
-      padding: 5px;
+      padding: 8px;
       margin-bottom: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    textarea {
+      height: 150px;
+      resize: vertical;
     }
     button {
       width: 100%;
@@ -31,6 +39,9 @@
     button:hover {
       background-color: #45a049;
     }
+    .word-limit-group {
+      margin-bottom: 15px;
+    }
   </style>
 </head>
 <body>
@@ -40,6 +51,26 @@
       <option value="ollama">Ollama (本地)</option>
       <option value="deepseek">Deepseek</option>
     </select>
+  </div>
+
+  <div class="form-group">
+    <label>字数限制:</label>
+    <select id="wordLimit">
+      <option value="">不限字数</option>
+      <option value="100">100字以内</option>
+      <option value="200">200字以内</option>
+      <option value="500">500字以内</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>自定义提示词:</label>
+    <textarea id="customPrompt">请用markdown格式总结以下文本，要求：
+1. 分点概括主要内容
+2. 语言简洁清晰
+3. 保持原文的关键信息
+
+原文：{{text}}</textarea>
   </div>
 
   <div class="form-group" id="ollamaSettings">

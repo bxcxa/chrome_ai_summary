@@ -2,50 +2,46 @@
     position: fixed !important;
     top: 20px !important;
     right: 20px !important;
-    width: 300px !important;
-    max-height: 400px !important;
+    width: 400px !important;
+    max-height: 600px !important;
     background: white !important;
     border: 1px solid #ccc !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
     z-index: 2147483647 !important;
     padding: 15px !important;
-    font-family: Arial, sans-serif !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
   }
   
   .summary-header {
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    margin-bottom: 10px !important;
+    margin-bottom: 15px !important;
     border-bottom: 1px solid #eee !important;
     padding-bottom: 10px !important;
   }
   
-  .summary-header h3 {
-    margin: 0 !important;
-    font-size: 16px !important;
+  .summary-controls {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
   }
   
-  .close-btn {
-    border: none !important;
-    background: none !important;
-    font-size: 20px !important;
-    cursor: pointer !important;
-    padding: 0 !important;
-    color: #666 !important;
-  }
-  
-  .close-btn:hover {
-    color: #000 !important;
+  .word-limit {
+    padding: 4px 8px !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    font-size: 12px !important;
   }
   
   .summary-content {
     overflow-y: auto !important;
-    max-height: 300px !important;
-    line-height: 1.5 !important;
+    max-height: 500px !important;
+    line-height: 1.6 !important;
     font-size: 14px !important;
     color: #333 !important;
+    padding: 10px !important;
   }
   
   .summary-status {
@@ -55,4 +51,43 @@
     font-size: 12px !important;
     text-align: center !important;
     border-top: 1px solid #eee !important;
+  }
+  
+  .markdown-body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
+    line-height: 1.6 !important;
+  }
+  
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4 {
+    margin-top: 24px !important;
+    margin-bottom: 16px !important;
+    font-weight: 600 !important;
+    line-height: 1.25 !important;
+  }
+  
+  .markdown-body ul,
+  .markdown-body ol {
+    padding-left: 2em !important;
+    margin-top: 0 !important;
+    margin-bottom: 16px !important;
+  }
+  
+  .markdown-body li {
+    margin: 0.25em 0 !important;
+  }
+  
+  .markdown-body code {
+    padding: 0.2em 0.4em !important;
+    background-color: rgba(27,31,35,0.05) !important;
+    border-radius: 3px !important;
+  }
+  
+  .error-message {
+    color: #dc3545 !important;
+    padding: 10px !important;
+    background-color: #fff8f8 !important;
+    border-radius: 4px !important;
   }

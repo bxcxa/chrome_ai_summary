@@ -14,48 +14,64 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// 添加字数限制状态
+let currentWordLimit = '';
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "updateWordLimit") {
+    currentWordLimit = request.limit;
+    sendResponse({success: true});
+  }
+});
+
 // 处理右键菜单点击
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  console.log('Menu clicked', info.menuItemId);
   if (info.menuItemId === "aiSummary") {
-    console.log('Selected text:', info.selectionText);
-
     try {
       const { settings } = await chrome.storage.sync.get('settings');
       
-      // 先发送一个消息来清空/准备容器
+      // 准备提示词
+      let prompt = settings.customPrompt || getDefaultPrompt();
+      prompt = prompt.replace('{{text}}', info.selectionText);
+      
+      // 如果设置了字数限制，添加到提示词中
+      if (settings.wordLimit) {
+        prompt += `\n\n请控制在 ${settings.wordLimit} 字以内`;
+      }
+
+      // 发送准备消息
       chrome.tabs.sendMessage(tab.id, {
         action: "prepareSummary"
       });
 
-      // 使用 fetch 发送流式请求
       const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${settings.deepseek.apiKey}`
+          "Authorization": `Bearer ${settings?.deepseek?.apiKey || ''}`
         },
         body: JSON.stringify({
-          model: settings.deepseek.model || "deepseek-chat",
+          model: settings?.deepseek?.model || "deepseek-chat",
           messages: [{
             role: "user",
-            content: `请总结以下文本：\n${info.selectionText}`
+            content: prompt
           }],
-          stream: true  // 启用流式输出
+          stream: true
         })
       });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         
-        // 解析返回的数据
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
         for (const line of lines) {
           if (line.trim() === '') continue;
           if (line.includes('data: [DONE]')) continue;
@@ -63,17 +79,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           try {
             const jsonStr = line.replace(/^data: /, '');
             const json = JSON.parse(jsonStr);
-            const content = json.choices[0].delta.content;
             
-            if (content) {
-              // 发送每个文本片段到内容脚本
+            // 检查响应格式
+            if (json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content) {
+              const content = json.choices[0].delta.content;
+              // 发送内容到内容脚本
               chrome.tabs.sendMessage(tab.id, {
                 action: "appendSummary",
                 content: content
               });
             }
           } catch (e) {
-            console.error('解析响应出错:', e);
+            console.error('解析响应出错:', e, line);
           }
         }
       }
@@ -98,3 +115,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background received message:', request);
   sendResponse({received: true});
 });
+
+function getDefaultPrompt() {
+  return `请用markdown格式总结以下文本，要求：
+1. 分点概括主要内容
+2. 语言简洁清晰
+3. 保持原文的关键信息
+
+原文：{{text}}`;
+}

@@ -6,7 +6,7 @@ let currentPopup = null;
 function getOrCreateSummaryPopup() {
   if (currentPopup) {
     const contentDiv = currentPopup.querySelector('.summary-content');
-    contentDiv.textContent = ''; // 清空内容
+    contentDiv.textContent = '';
     return currentPopup;
   }
 
@@ -15,9 +15,17 @@ function getOrCreateSummaryPopup() {
   popup.innerHTML = `
     <div class="summary-header">
       <h3>AI总结</h3>
-      <button class="close-btn">×</button>
+      <div class="summary-controls">
+        <select class="word-limit">
+          <option value="">不限字数</option>
+          <option value="100">100字以内</option>
+          <option value="200">200字以内</option>
+          <option value="500">500字以内</option>
+        </select>
+        <button class="close-btn">×</button>
+      </div>
     </div>
-    <div class="summary-content"></div>
+    <div class="summary-content markdown-body"></div>
     <div class="summary-status" style="display: none;"></div>
   `;
   
@@ -30,7 +38,39 @@ function getOrCreateSummaryPopup() {
     currentPopup = null;
   });
 
+  // 添加字数限制变更监听
+  popup.querySelector('.word-limit').addEventListener('change', (e) => {
+    const limit = e.target.value;
+    chrome.runtime.sendMessage({
+      action: "updateWordLimit",
+      limit: limit
+    });
+  });
+
   return popup;
+}
+
+// 处理 Markdown 内容
+let markdownContent = '';
+
+function appendAndRenderContent(content) {
+  if (!currentPopup) return;
+  
+  const contentDiv = currentPopup.querySelector('.summary-content');
+  markdownContent += content;
+  
+  // 使用 marked 渲染 Markdown
+  try {
+    contentDiv.innerHTML = marked.parse(markdownContent, {
+      breaks: true,
+      gfm: true
+    });
+  } catch (e) {
+    contentDiv.textContent = markdownContent;
+  }
+
+  // 滚动到底部
+  contentDiv.scrollTop = contentDiv.scrollHeight;
 }
 
 // 显示加载状态
@@ -56,29 +96,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   switch (request.action) {
     case "prepareSummary":
-      // 准备新的总结
       getOrCreateSummaryPopup();
       showStatus('正在生成总结...');
+      markdownContent = ''; // 重置 Markdown 内容
       break;
 
     case "appendSummary":
-      // 追加内容
-      if (currentPopup) {
-        const contentDiv = currentPopup.querySelector('.summary-content');
-        contentDiv.textContent += request.content;
-      }
+      appendAndRenderContent(request.content);
       break;
 
     case "completeSummary":
-      // 完成总结
       hideStatus();
       break;
 
     case "showError":
-      // 显示错误
       getOrCreateSummaryPopup();
       const contentDiv = currentPopup.querySelector('.summary-content');
-      contentDiv.textContent = `错误：${request.error}`;
+      contentDiv.innerHTML = `<div class="error-message">错误：${request.error}</div>`;
       hideStatus();
       break;
   }
